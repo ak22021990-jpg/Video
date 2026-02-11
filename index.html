@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Video Annotator — Timestamp & Export</title>
+<style>
+  :root{
+    --bg:#0f1724; --card:#0b1220; --accent:#6ee7b7; --muted:#9aa6b2;
+    --glass: rgba(255,255,255,0.03);
+  }
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial; margin:0; background:linear-gradient(180deg,#071126 0%, #081829 60%); color:#e6eef6;}
+  .wrap{display:grid; grid-template-columns:320px 1fr; gap:18px; padding:20px; max-width:1300px; margin:20px auto;}
+  .panel{background:linear-gradient(180deg,var(--card), #051021); border-radius:12px; padding:14px; box-shadow:0 6px 24px rgba(2,6,23,0.6);}
+  h2{margin:6px 0 12px; font-size:16px; color:var(--accent)}
+  .video-list{display:flex; flex-direction:column; gap:8px;}
+  .video-item{display:flex; gap:10px; align-items:center; padding:8px; border-radius:8px; cursor:pointer; border:1px solid transparent;}
+  .video-item:hover{background:var(--glass); border-color:rgba(110,231,183,0.06);}
+  .video-item.active{background:linear-gradient(90deg, rgba(110,231,183,0.06), transparent); border-color:rgba(110,231,183,0.12);}
+  .video-thumb{width:48px; height:34px; background:#082031; border-radius:6px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:11px;}
+  .meta{font-size:13px}
+  .main{display:flex; flex-direction:column; gap:12px;}
+  .player{display:flex; gap:12px; align-items:flex-start;}
+  video{width:100%; max-height:420px; border-radius:10px; background:black;}
+  .controls{min-width:260px; display:flex; flex-direction:column; gap:10px;}
+  .seek{display:flex; gap:8px; align-items:center;}
+  input[type=range]{width:100%;}
+  .btn{background:linear-gradient(90deg,var(--accent),#2ad29b); color:#012; font-weight:600; border:none; padding:8px 12px; border-radius:8px; cursor:pointer;}
+  .btn.secondary{background:transparent; color:var(--accent); border:1px solid rgba(110,231,183,0.12)}
+  .row{display:flex; gap:8px;}
+  .annotation-area{display:flex; flex-direction:column; gap:8px; margin-top:6px;}
+  textarea{width:100%; min-height:64px; resize:vertical; padding:8px; border-radius:8px; background:#051126; color:#e6eef6; border:1px solid rgba(255,255,255,0.03);}
+  .annotations-list{margin-top:10px; max-height:240px; overflow:auto; border-radius:8px; padding:8px; background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th,td{padding:8px; border-bottom:1px dashed rgba(255,255,255,0.02); text-align:left;}
+  .tag{display:inline-block; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.03); color:var(--muted); font-size:12px;}
+  .toolbar{display:flex; gap:8px; align-items:center; justify-content:space-between;}
+  .small{font-size:12px; color:var(--muted);}
+  .note{font-size:13px; color:var(--muted); padding:8px 10px; border-radius:8px; background:rgba(255,255,255,0.01);}
+  .kbd{background:#071222; padding:4px 6px; border-radius:6px; border:1px solid rgba(255,255,255,0.02); font-weight:600; color:var(--muted)}
+  .flex{display:flex; gap:8px; align-items:center;}
+  footer{margin-top:18px; text-align:center; color:var(--muted); font-size:13px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="panel">
+    <h2>Videos (select one)</h2>
+    <div class="video-list" id="videoList"></div>
+
+    <div style="margin-top:12px;">
+      <div class="note"><strong>Shortcuts:</strong> <span class="kbd">Space</span> play/pause &nbsp; <span class="kbd">S</span> set start &nbsp; <span class="kbd">E</span> set end</div>
+    </div>
+
+    <div style="margin-top:12px;">
+      <h2>Export</h2>
+      <div class="small">Export will produce a Word-compatible document (.doc). The download button is enabled only when every video has at least one annotation.</div>
+      <div style="margin-top:10px;" class="flex">
+        <button id="downloadBtn" class="btn" disabled>Download .doc</button>
+        <button id="downloadJson" class="btn secondary">Export JSON</button>
+      </div>
+      <div style="margin-top:8px;" class="small" id="exportStatus"></div>
+    </div>
+  </div>
+
+  <div class="panel main">
+    <div class="player" id="playerSection">
+      <div style="flex:1">
+        <video id="videoPlayer" controls crossorigin="anonymous">
+          <!-- src sets via JS -->
+        </video>
+        <div style="display:flex; gap:12px; justify-content:space-between; margin-top:8px;">
+          <div class="small">Video: <span id="videoTitle">—</span></div>
+          <div class="small">Current: <span id="curTime">00:00</span> / <span id="durTime">00:00</span></div>
+        </div>
+
+        <div style="margin-top:10px;">
+          <div class="seek">
+            <input id="seekRange" type="range" min="0" max="100" value="0" step="0.01">
+          </div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="toolbar">
+          <div class="small">Timestamp tools</div>
+          <div class="small">Start <span id="lblStart" class="tag">—</span> End <span id="lblEnd" class="tag">—</span></div>
+        </div>
+
+        <div class="row">
+          <button id="btnSetStart" class="btn secondary">Set Start</button>
+          <button id="btnSetEnd" class="btn secondary">Set End</button>
+          <button id="btnClear" class="btn" title="Clear start/end">Clear</button>
+        </div>
+
+        <div class="annotation-area">
+          <textarea id="annotationText" placeholder="Describe the action observed between start and end timestamps..."></textarea>
+          <div style="display:flex; gap:8px;">
+            <button id="btnAdd" class="btn">Add Annotation</button>
+            <button id="btnSnap" class="btn secondary">Capture Frame (PNG)</button>
+            <div class="small" id="snapStatus"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:8px;">
+      <div class="note"><strong>Annotations</strong> — add timestamps, edit/delete, jump to annotation time.</div>
+      <div class="annotations-list" id="annotationsList">
+        <!-- table rendered -->
+      </div>
+    </div>
+
+    <footer>
+      Game-mode ideas & docs below. Use the README in your repo for hosting/video instructions.
+    </footer>
+  </div>
+</div>
+
+<script>
+/* ========== Config - replace these video URLs with your hosted files ========== */
+const videos = [
+  { id: 1, title: "Video 1 — sample", url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" },
+  { id: 2, title: "Video 2 — sample", url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" },
+  { id: 3, title: "Video 3 — sample", url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" },
+  { id: 4, title: "Video 4 — sample", url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" },
+  { id: 5, title: "Video 5 — sample", url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" },
+];
+/* ============================================================================== */
+
+let annotations = {}; // {videoIndex: [annotation,...]}
+let currentVideoIndex = 0;
+let startTime = null;
+let endTime = null;
+let capturedSnapshotDataUrl = null;
+
+const videoListEl = document.getElementById('videoList');
+const videoPlayer = document.getElementById('videoPlayer');
+const videoTitle = document.getElementById('videoTitle');
+const curTimeEl = document.getElementById('curTime');
+const durTimeEl = document.getElementById('durTime');
+const seekRange = document.getElementById('seekRange');
+const lblStart = document.getElementById('lblStart');
+const lblEnd = document.getElementById('lblEnd');
+const annotationText = document.getElementById('annotationText');
+const annotationsList = document.getElementById('annotationsList');
+const downloadBtn = document.getElementById('downloadBtn');
+const downloadJson = document.getElementById('downloadJson');
+const exportStatus = document.getElementById('exportStatus');
+const snapStatus = document.getElementById('snapStatus');
+
+function init(){
+  videos.forEach((v, idx) => {
+    annotations[idx] = [];
+    const el = document.createElement('div');
+    el.className = 'video-item';
+    el.dataset.idx = idx;
+    el.innerHTML = `<div class="video-thumb">${idx+1}</div><div class="meta"><div style="font-weight:600">${v.title}</div><div style="font-size:12px;color:var(--muted)">ID ${v.id}</div></div>`;
+    el.addEventListener('click', ()=> selectVideo(idx));
+    videoListEl.appendChild(el);
+  });
+  selectVideo(0);
+
+  videoPlayer.addEventListener('timeupdate', onTimeUpdate);
+  videoPlayer.addEventListener('loadedmetadata', ()=> {
+    seekRange.max = videoPlayer.duration || 0;
+    durTimeEl.textContent = formatTime(videoPlayer.duration || 0);
+  });
+  seekRange.addEventListener('input', ()=> {
+    videoPlayer.currentTime = parseFloat(seekRange.value);
+  });
+
+  document.getElementById('btnSetStart').addEventListener('click', setStart);
+  document.getElementById('btnSetEnd').addEventListener('click', setEnd);
+  document.getElementById('btnClear').addEventListener('click', clearStartEnd);
+  document.getElementById('btnAdd').addEventListener('click', addAnnotation);
+  document.getElementById('btnSnap').addEventListener('click', captureFrame);
+  downloadBtn.addEventListener('click', downloadDoc);
+  downloadJson.addEventListener('click', downloadJSON);
+
+  document.addEventListener('keydown', (e)=>{
+    // space -> play/pause
+    if(e.code === 'Space' && document.activeElement !== annotationText){
+      e.preventDefault();
+      if(videoPlayer.paused) videoPlayer.play(); else videoPlayer.pause();
+    }
+    if(e.key === 's' || e.key === 'S'){ setStart(); }
+    if(e.key === 'e' || e.key === 'E'){ setEnd(); }
+  });
+  renderAnnotations();
+  updateDownloadState();
+}
+
+function selectVideo(idx){
+  currentVideoIndex = idx;
+  document.querySelectorAll('.video-item').forEach((el)=> el.classList.toggle('active', el.dataset.idx==idx));
+  const v = videos[idx];
+  videoPlayer.src = v.url;
+  videoTitle.textContent = v.title;
+  clearStartEnd();
+  renderAnnotations();
+  // small pause to allow metadata load
+  videoPlayer.pause();
+  setTimeout(()=> {
+    seekRange.max = videoPlayer.duration || 0;
+    durTimeEl.textContent = formatTime(videoPlayer.duration || 0);
+  }, 250);
+}
+
+function onTimeUpdate(){
+  const t = videoPlayer.currentTime;
+  curTimeEl.textContent = formatTime(t);
+  seekRange.value = t;
+}
+
+function formatTime(s){
+  if(!isFinite(s)) return '00:00';
+  const hrs = Math.floor(s/3600);
+  const mins = Math.floor((s%3600)/60);
+  const secs = Math.floor(s%60);
+  const ms = Math.floor((s - Math.floor(s))*1000);
+  if(hrs>0) return `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+  return `${pad(mins)}:${pad(secs)}`;
+}
+function pad(n){ return String(n).padStart(2,'0'); }
+
+function setStart(){
+  startTime = videoPlayer.currentTime;
+  lblStart.textContent = formatTime(startTime);
+  lblStart.dataset.val = startTime;
+}
+function setEnd(){
+  endTime = videoPlayer.currentTime;
+  lblEnd.textContent = formatTime(endTime);
+  lblEnd.dataset.val = endTime;
+}
+function clearStartEnd(){
+  startTime = null; endTime = null;
+  lblStart.textContent = '—'; lblEnd.textContent = '—';
+  capturedSnapshotDataUrl = null;
+  snapStatus.textContent = '';
+}
+
+function addAnnotation(){
+  const text = annotationText.value.trim();
+  if(startTime===null || endTime===null){ alert('Please set both Start and End timestamps before adding an annotation.'); return;}
+  if(endTime <= startTime){ alert('End time must be greater than Start time.'); return;}
+  if(!text){ alert('Please enter a description for the annotation.'); return; }
+
+  const ann = {
+    id: Date.now(),
+    start: Number(startTime.toFixed(3)),
+    end: Number(endTime.toFixed(3)),
+    description: text,
+    snapshot: capturedSnapshotDataUrl || null,
+    createdAt: (new Date()).toISOString()
+  };
+  annotations[currentVideoIndex].push(ann);
+  annotationText.value = '';
+  clearStartEnd();
+  renderAnnotations();
+  updateDownloadState();
+}
+
+function renderAnnotations(){
+  const list = annotations[currentVideoIndex];
+  if(!list || list.length===0){
+    annotationsList.innerHTML = `<div class="small" style="padding:8px">No annotations yet for this video.</div>`;
+    return;
+  }
+  let html = `<table><thead><tr><th>#</th><th>Start</th><th>End</th><th>Duration</th><th>Description</th><th>Snapshot</th><th>Actions</th></tr></thead><tbody>`;
+  list.forEach((a,i)=>{
+    const dur = (a.end - a.start).toFixed(3);
+    const snap = a.snapshot ? `<a href="${a.snapshot}" download="snap-${a.id}.png">png</a>` : '-';
+    html += `<tr>
+      <td>${i+1}</td>
+      <td>${formatTime(a.start)}</td>
+      <td>${formatTime(a.end)}</td>
+      <td>${dur}s</td>
+      <td style="max-width:360px">${escapeHtml(a.description)}</td>
+      <td>${snap}</td>
+      <td>
+        <button class="btn small" onclick="jumpTo(${a.start})">Jump</button>
+        <button class="btn small" onclick="editAnnotation(${a.id})">Edit</button>
+        <button class="btn small" onclick="deleteAnnotation(${a.id})">Delete</button>
+      </td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  annotationsList.innerHTML = html;
+}
+
+function jumpTo(seconds){ videoPlayer.currentTime = seconds; videoPlayer.play(); }
+
+function editAnnotation(id){
+  const list = annotations[currentVideoIndex];
+  const idx = list.findIndex(x=>x.id===id);
+  if(idx === -1) return;
+  const a = list[idx];
+  // simple edit modal via prompt (keeps UI compact); you can replace with proper modal
+  const newDesc = prompt('Edit description:', a.description);
+  if(newDesc === null) return;
+  a.description = newDesc.trim();
+  renderAnnotations();
+}
+
+function deleteAnnotation(id){
+  let list = annotations[currentVideoIndex];
+  const idx = list.findIndex(x=>x.id===id);
+  if(idx === -1) return;
+  if(!confirm('Delete this annotation?')) return;
+  list.splice(idx,1);
+  renderAnnotations();
+  updateDownloadState();
+}
+
+function updateDownloadState(){
+  const allHaveAnn = videos.every((v,i)=> (annotations[i] && annotations[i].length>0));
+  downloadBtn.disabled = !allHaveAnn;
+  exportStatus.textContent = allHaveAnn ? 'All videos annotated — ready to download' : 'Each video needs at least one annotation to enable .doc download.';
+}
+
+/* ---------- Simple HTML-to-DOC export ---------- */
+function downloadDoc(){
+  const title = `Video Annotations Export`;
+  let html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111}table{width:100%;border-collapse:collapse}th,td{padding:8px;border:1px solid #ddd;text-align:left}h2{background:#f6f6f6;padding:8px}</style></head><body>`;
+  html += `<h1>${escapeHtml(title)}</h1>`;
+  html += `<div>Export date: ${new Date().toLocaleString()}</div>`;
+
+  videos.forEach((v, idx) => {
+    html += `<h2>${escapeHtml(v.title)}</h2>`;
+    const list = annotations[idx] || [];
+    if(list.length === 0){
+      html += `<div><em>No annotations</em></div>`;
+    } else {
+      html += `<table><thead><tr><th>#</th><th>Start</th><th>End</th><th>Duration (s)</th><th>Description</th></tr></thead><tbody>`;
+      list.forEach((a,i)=>{
+        html += `<tr>
+          <td>${i+1}</td>
+          <td>${formatTime(a.start)}</td>
+          <td>${formatTime(a.end)}</td>
+          <td>${(a.end - a.start).toFixed(3)}</td>
+          <td>${escapeHtml(a.description)}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+  });
+
+  html += `</body></html>`;
+  const blob = new Blob([html], {type: 'application/msword'}); // .doc friendly
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'video-annotations.doc';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------- JSON export for trainers / evaluation ---------- */
+function downloadJSON(){
+  const exportObj = {
+    generatedAt: (new Date()).toISOString(),
+    videos: videos.map((v,idx)=>({
+      id: v.id, title: v.title, url: v.url, annotations: annotations[idx] || []
+    }))
+  };
+  const blob = new Blob([JSON.stringify(exportObj, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'video-annotations.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* ---------- Snapshot capture ---------- */
+function captureFrame(){
+  try{
+    const canvas = document.createElement('canvas');
+    const w = videoPlayer.videoWidth;
+    const h = videoPlayer.videoHeight;
+    if(!w || !h){ snapStatus.textContent = 'Video not ready for snapshot.'; return; }
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoPlayer, 0, 0, w, h);
+    const dataUrl = canvas.toDataURL('image/png');
+    capturedSnapshotDataUrl = dataUrl;
+    snapStatus.innerHTML = 'Captured <a href="'+dataUrl+'" download="snap.png">download</a>';
+  }catch(err){
+    console.error(err);
+    snapStatus.textContent = 'Snapshot failed: ' + err.message;
+  }
+}
+
+/* ---------- Utility ---------- */
+function escapeHtml(s){ return s ? s.replace(/[&<>"']/g, (m)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])) : ''; }
+
+init();
+</script>
+</body>
+</html>
